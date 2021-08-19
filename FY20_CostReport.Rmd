@@ -1,0 +1,303 @@
+---
+title: "FY20 Cost Report by Line Office"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Web Services, get files
+#devtools::install_github(repo="haozhu233/kableExtra", ref="a6af5c0")
+library(kableExtra)
+library(httr)
+library(rlist)
+library(reactable)
+library(devtools)
+library(jsonlite)
+library(tidyverse)
+library(plyr)
+library(readr)
+library(sjmisc)
+library(stringr)
+#install_github("jeroenooms/jsonlite")
+#eores<-"https://eorestest.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-https://eoreswstest2.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+
+#treename<-"EOA2016"
+treename<-"NOSIA-II"
+#treename<-"NOSIA-2-1"
+
+#poh
+r<-GET(paste0(eores,"get_reports_physical_organization_hierarchy",sep=""))
+json_text<-content(r, as = "text")
+poh_json<-fromJSON(json_text)
+poh<-poh_json[['rptpoh']]
+
+#poh2systems
+r<-GET(paste0(eores,"get_reports_observing_system_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+poh2systems_json<-fromJSON(json_text)
+poh2systems<-poh2systems_json[['rptsystemorgs']]
+
+#systems
+r<-GET(paste0(eores,"get_reports_observing_system_basic_information",sep=""))
+json_text<-content(r, as = "text")
+systems_json<-fromJSON(json_text)
+systems<-systems_json[['rptsystembasic']]
+
+r<-GET(paste0(eores,"get_reports_observing_system_key_dates",sep=""))
+json_text<-content(r, as = "text")
+systems2dates_json<-fromJSON(json_text)
+systems2dates<-systems2dates_json[['rptsystemdates']]
+
+
+#system cost information
+r<-GET(paste0(eores,"get_reports_observing_system_cost_information",sep=""))
+json_text<-content(r, as = "text")
+ObservingSystemCostInformation_json<-fromJSON(json_text)
+ObservingSystemCostInformation<-ObservingSystemCostInformation_json[['rptsystemcost']]
+
+#system documents
+r<-GET(paste0(eores,"get_reports_observing_system_documentation",sep=""))
+json_text<-content(r, as = "text")
+systemdocs_json<-fromJSON(json_text)
+systemdocs<-systemdocs_json[['rptsystemdocs']]
+
+#system orgs
+r<-GET(paste0(eores,"get_reports_observing_system_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+systemorgs_json<-fromJSON(json_text)
+systemorgs<-systemorgs_json[['rptsystemorgs']]
+
+#poc
+r<-GET(paste0(eores,"get_reports_person",sep=""))
+json_text<-content(r, as = "text")
+poc_json<-fromJSON(json_text)
+poc<-poc_json[['rptperson']]
+
+#poc2system
+r<-GET(paste0(eores,"get_reports_observing_system_poc",sep=""))
+json_text<-content(r, as = "text")
+poc2system_json<-fromJSON(json_text)
+poc2system<-poc2system_json[['rptsystempoc']]
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+system2cost_2020<- systems %>%
+  full_join(systemorgs, by = "system_id") %>%
+  full_join(ObservingSystemCostInformation, by="system_id") %>%
+  filter(poh_affiliation_type == "OBSERVING SYSTEM OWNER") %>%
+  select(system_id, system_name, system_acronym, osc_baseline_observing_system_category, level_3_short_name, level_4_short_name, year, cost_type, cost_category, cost, cost_units, cost_source) %>%
+  filter(year == 2020) %>%
+  arrange(desc(osc_baseline_observing_system_category), desc(cost_type)) %>%
+  filter(!is.na(system_name)) %>%
+  filter(osc_baseline_observing_system_category == "Critical") %>%
+  filter(level_3_short_name == "NOAA"| system_acronym == "NERRS SWMP") %>%
+  mutate(system_name = paste0(system_name," (",system_acronym,")")) %>%
+  select(-cost_units, - system_id) %>%
+  mutate(level_4_short_name=replace(level_4_short_name, which(system_acronym == "NERRS SWMP"), "NOS"))
+
+Systems_POC_Cost<- systems %>%
+  inner_join(systemorgs, by = "system_id") %>%
+  full_join(poc2system, by = "system_id") %>%
+  filter(poc_type == "COST") %>%
+  mutate(name = as.factor(paste0(poc_first_name," ",poc_last_name)),
+         system = as.factor(paste0(system_name, " (",system_acronym,")"))) %>%
+  select(-system_description, -system_intended_use, -system_life_cycle_phase, -system_deployment_plans, -country_names, -system_poc_id, -poc_title, -poc_first_name, -poc_last_name, -poc_phone_number, -poc_phone_extension, -poc_type, -system_type, -osc_baseline_observing_system_category, -system_name) %>%
+  mutate(system_name = paste0(system," ",name)) %>%
+  distinct(system_name, .keep_all = TRUE) %>%
+  select(level_4_short_name, system_acronym, system, name, poc_email_address)
+```
+
+## NESDIS  
+     
+### POCs  
+```{r, echo = FALSE}
+NESDIS_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "NESDIS"]) %>%
+  select(-level_4_short_name, -system_acronym) %>%
+  mutate(system = as.factor(system))
+  
+knitr::kable(NESDIS_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+           
+### Costs  
+```{r, echo = FALSE}
+system2cost_2020_NESDIS <- system2cost_2020 %>% filter (level_4_short_name == "NESDIS") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source, - year)
+
+reactable(system2cost_2020_NESDIS, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```
+
+
+## NOS
+### POCs
+```{r, echo = FALSE}
+NOS_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "NOS"]) %>%
+  select(-level_4_short_name, -system_acronym)
+  
+kbl(NOS_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Costs
+```{r, echo = FALSE}
+system2cost_2020_NOS <- system2cost_2020 %>% filter (level_4_short_name == "NOS") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source, - year)
+
+reactable(system2cost_2020_NOS, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```
+
+## NWS
+### POCs
+```{r, echo = FALSE}
+NWS_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "NWS"]) %>%
+  select(-level_4_short_name, -system_acronym)
+  
+kbl(NWS_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Costs
+```{r, echo = FALSE}
+system2cost_2020_NWS <- system2cost_2020 %>% filter (level_4_short_name == "NWS") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source, -year)
+
+reactable(system2cost_2020_NWS, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```
+
+## OMAO
+### POCs
+```{r, echo = FALSE}
+OMAO_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "OMAO"]) %>%
+  select(-level_4_short_name, -system_acronym)
+  
+kbl(OMAO_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Costs
+```{r, echo = FALSE}
+system2cost_2020_OMAO <- system2cost_2020 %>% filter (level_4_short_name == "OMAO") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source, -year)
+
+reactable(system2cost_2020_OMAO, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```
+
+
+## OAR
+### POCs
+```{r, echo = FALSE}
+OAR_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "OAR"]) %>%
+  select(-level_4_short_name, -system_acronym)
+  
+kbl(OAR_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Costs
+```{r, echo = FALSE}
+system2cost_2020_OAR <- system2cost_2020 %>% filter (level_4_short_name == "OAR") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source, -year)
+
+reactable(system2cost_2020_OAR, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```
+
+
+## NMFS
+### POCs
+Not available at this time.
+```{r, echo = FALSE, eval = FALSE}
+NMFS_Cost <- Systems_POC_Cost %>%
+  filter(system_acronym %in% system2cost_2020$system_acronym[system2cost_2020$level_4_short_name == "NMFS"]) %>%
+  select(-level_4_short_name, -system_acronym)
+  
+kbl(NMFS_Cost, col.names = c("System", "POC Name", "POC Email Address")) %>%
+  kable_paper(full_width = F,) %>%
+  column_spec(1, bold = T) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Costs
+Not available at this time.
+```{r, echo = FALSE, eval = FALSE}
+system2cost_2020_NMFS <- system2cost_2020 %>% filter (level_4_short_name == "NMFS") %>%
+  select(-level_4_short_name, -system_acronym, -level_3_short_name, -cost_source)
+
+reactable(system2cost_2019_NMFS, resizable = TRUE, groupBy ="system_name",
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            osc_baseline_observing_system_category = colDef(name = "OSC Baseline Observing System Category", minWidth = 200),
+            year = colDef(name = "Fiscal Year"),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            cost = colDef(name = "Cost ($K)", sortable = TRUE, aggregate = "max")),
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")
+          ))
+```

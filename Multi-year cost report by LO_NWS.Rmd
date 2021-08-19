@@ -1,0 +1,280 @@
+---
+title: "Cost Report for NWS"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: menu
+    theme: sandstone
+---
+
+```{r}
+library(httr)
+library(rlist)
+library(dplyr)
+library(reactable)
+library(devtools)
+library(jsonlite)
+library(tidyverse)
+library(plyr)
+library(readr)
+library(sjmisc)
+library(stringr)
+library(kableExtra)
+library(formattable)
+library(flexdashboard)
+library(treemap)
+library(RColorBrewer)
+library(thematic)
+#install_github("jeroenooms/jsonlite")
+#eores<-"https://eorestest.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-https://eoreswstest2.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+
+#treename<-"EOA2016"
+treename<-"NOSIA-II"
+#treename<-"NOSIA-2-1"
+
+#poh
+r<-GET(paste0(eores,"get_reports_physical_organization_hierarchy",sep=""))
+json_text<-content(r, as = "text")
+poh_json<-fromJSON(json_text)
+poh<-poh_json[['rptpoh']]
+
+#poh2systems
+r<-GET(paste0(eores,"get_reports_observing_system_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+poh2systems_json<-fromJSON(json_text)
+poh2systems<-poh2systems_json[['rptsystemorgs']]
+
+#systems
+r<-GET(paste0(eores,"get_reports_observing_system_basic_information",sep=""))
+json_text<-content(r, as = "text")
+systems_json<-fromJSON(json_text)
+systems<-systems_json[['rptsystembasic']]
+
+r<-GET(paste0(eores,"get_reports_observing_system_key_dates",sep=""))
+json_text<-content(r, as = "text")
+systems2dates_json<-fromJSON(json_text)
+systems2dates<-systems2dates_json[['rptsystemdates']]
+
+
+#system cost information
+r<-GET(paste0(eores,"get_reports_observing_system_cost_information",sep=""))
+json_text<-content(r, as = "text")
+ObservingSystemCostInformation_json<-fromJSON(json_text)
+ObservingSystemCostInformation<-ObservingSystemCostInformation_json[['rptsystemcost']]
+
+#system documents
+r<-GET(paste0(eores,"get_reports_observing_system_documentation",sep=""))
+json_text<-content(r, as = "text")
+systemdocs_json<-fromJSON(json_text)
+systemdocs<-systemdocs_json[['rptsystemdocs']]
+
+#system orgs
+r<-GET(paste0(eores,"get_reports_observing_system_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+systemorgs_json<-fromJSON(json_text)
+systemorgs<-systemorgs_json[['rptsystemorgs']]
+
+#poc
+r<-GET(paste0(eores,"get_reports_person",sep=""))
+json_text<-content(r, as = "text")
+poc_json<-fromJSON(json_text)
+poc<-poc_json[['rptperson']]
+
+#poc2system
+r<-GET(paste0(eores,"get_reports_observing_system_poc",sep=""))
+json_text<-content(r, as = "text")
+poc2system_json<-fromJSON(json_text)
+poc2system<-poc2system_json[['rptsystempoc']]
+
+#source('/Users/elizabethgugliotti/Desktop/EORES_PROD-NOSIA-II/Scripts/ImportFiles_CreateJoins.R')
+#SystemDocumentation<-read.csv('/Users/elizabethgugliotti/Desktop/EORES_PROD-NOSIA-II/NODE_ObservingSystemDocumentation.csv', header = TRUE)
+```
+
+```{r}
+# REPLACE LO NAME HERE
+system2cost<- systems %>%
+  full_join(ObservingSystemCostInformation, by="system_id")%>%
+  dplyr::select(-country_names, -system_deployment_plans, -system_description, -system_cost_id) %>%
+  arrange(desc(osc_baseline_observing_system_category), desc(cost_type)) %>%
+  full_join(systemorgs[systemorgs$poh_affiliation_type=="OBSERVING SYSTEM OWNER",], by = "system_id") %>%
+  filter(!is.na(system_name)) %>%
+  filter(level_3_short_name == "NOAA"| system_acronym == "NERRS SWMP", osc_baseline_observing_system_category == "Critical") %>%
+  dplyr::mutate(system_name = paste0(system_name," (",system_acronym,")")) %>%
+  dplyr::mutate(level_4_short_name=replace(level_4_short_name, which(system_acronym == "NERRS SWMP"), "NOS")) %>%
+  filter(level_4_short_name=="NWS", # REPLACE LO NAME HERE
+#         year %in% c(2016, 2017, 2018)) %>% NMFS ONLY
+         year %in% c(2016, 2017, 2018, 2019, 2020)) %>%
+  dplyr::select(system_name, year, cost_type, cost_category, cost) %>%
+  filter(system_name != "Advanced Composition Explorer (ACE)") %>%
+  mutate(year = paste0("FY", year)) %>%
+  mutate(unique_sys = paste(system_name, year, cost_type, cost_category, cost)) %>%
+  distinct(unique_sys, .keep_all = TRUE) %>%
+  select(-unique_sys) %>%
+  mutate(cost_type = replace(cost_type, which (cost_type == ""), "ORF"))
+
+
+system2cost_urls<-systems %>%
+  full_join(ObservingSystemCostInformation, by="system_id")%>%
+  full_join(systemdocs, by = "system_id") %>%
+  dplyr::select(-country_names, -system_deployment_plans, -system_description, -system_cost_id) %>%
+  arrange(desc(osc_baseline_observing_system_category), desc(cost_type)) %>%
+  full_join(systemorgs[systemorgs$poh_affiliation_type=="OBSERVING SYSTEM OWNER",], by = "system_id") %>%
+  filter(!is.na(system_name)) %>%
+  filter(level_3_short_name == "NOAA"| system_acronym == "NERRS SWMP", osc_baseline_observing_system_category == "Critical") %>%
+  dplyr::mutate(system_name = paste0(system_name," (",system_acronym,")")) %>%
+  dplyr::mutate(level_4_short_name=replace(level_4_short_name, which(system_acronym == "NERRS SWMP"), "NOS")) %>%
+  filter(level_4_short_name=="NWS", # REPLACE LO NAME HERE
+#         year %in% c(2016, 2017, 2018)) %>% NMFS ONLY
+         year %in% c(2016, 2017, 2018, 2019, 2020),
+document_type == "Observing System Cost") %>%
+  filter(grepl("FY20", document_name)) %>%
+  dplyr::select(system_name, year, cost_type, cost_category, cost, document_url) %>%
+  filter(system_name != "Advanced Composition Explorer (ACE)") %>%
+  mutate(year = paste0("FY", year)) %>%
+  mutate(unique_sys = paste(system_name, year, cost_type, cost_category, cost)) %>%
+  distinct(unique_sys, .keep_all = TRUE) %>%
+  select(-unique_sys) %>%
+  mutate(cost_type = replace(cost_type, which (cost_type == ""), "ORF"))
+
+
+#system2cost<-system2cost[-c(19),] #(FOR NMFS)
+
+#table for urls; REPLACE LO NAME HERE
+#system2cost_urls2<- Systems %>%
+#  full_join(ObservingSystemCostInformation, by="system_id") %>%
+#  full_join(SystemDocumentation, by = "system_id") %>%
+#  dplyr::select(-country_names, -system_deployment_plans, -system_description, -system_cost_id, -palma_id) %>%
+#  arrange(desc(osc_baseline_observing_system_category), desc(cost_type)) %>%
+#  full_join(POHtoSystem[POHtoSystem$poh_affiliation_type=="OBSERVING SYSTEM OWNER",], by = "system_id") %>%
+#  filter(!is.na(system_name)) %>%
+#  filter(level_3_short_name == "NOAA"| system_acronym == "NERRS SWMP", osc_baseline_observing_system_category == "Critical") %>%
+#  dplyr::mutate(system_name = paste0(system_name," (",system_acronym,")")) %>%
+#  dplyr::mutate(level_4_short_name=replace(level_4_short_name, which(system_acronym == "NERRS SWMP"), "NOS")) %>%
+#  filter(system_name != "Advanced Composition Explorer (ACE)") %>%
+#  filter(level_4_short_name=="NOS", # REPLACE LO NAME HERE
+#         document_type =="Observing System Cost") %>%
+#  select(system_name, document_name, document_url) %>%
+#  distinct(system_name, .keep_all = TRUE)
+
+
+system2cost_fy20<-system2cost_urls %>%
+  filter(year=="FY2020") %>%
+  filter(cost_category == "Annual Operating Cost")
+  
+system2cost_wide<- system2cost_urls %>% 
+  filter(system_name %in% system2cost_fy20$system_name) %>%
+  pivot_wider(names_from = year, values_from = cost) %>%
+  as.data.frame() %>%
+  arrange(system_name, cost_category) %>%
+  mutate(FY2016 = ifelse(FY2016 == "NULL", NA, FY2016),
+         FY2017 = ifelse(FY2017 == "NULL", NA, FY2017),
+         FY2018 = ifelse(FY2018 == "NULL", NA, FY2018),
+#         FY2019 = NA) #FOR NMFS
+         FY2019 = ifelse(FY2019 == "NULL", NA, FY2019),
+         FY2020 = ifelse(FY2020 == "NULL", NA, FY2020),
+)
+
+
+# have to use DT for data tables in flexdashboard
+```
+Overview
+=======================================================================
+  
+Row
+-----------------------------------------------------------------------
+### FY20 Total Cost for All NWS Critical Systems of Record {.value-box}
+```{r}
+fy20_cost_filt<- system2cost %>% 
+  filter(year=="FY2020") %>%
+  filter(cost_category == "Annual Operating Cost")
+fy20_cost_filt<- round(sum(as.numeric(fy20_cost_filt$cost)),2)
+fy20_cost<- paste(comma(fy20_cost_filt), "$K")
+valueBox(fy20_cost, color = "success")
+```
+
+### vs FY19 {.value-box}
+```{r}
+fy19_cost_filt<- system2cost %>% 
+  filter(year=="FY2019") %>%
+  filter(cost_category == "Annual Operating Cost")
+fy19_cost_filt<- round(sum(as.numeric(fy19_cost_filt$cost)),2)
+fy19_cost_pcent<-((fy20_cost_filt/fy19_cost_filt)-1)*100
+fy19_cost<- paste(comma(fy19_cost_pcent), "%")
+color<-"rgb(128,222,126)"
+if(fy19_cost_pcent < 0) color <- "rgb(237,130,130)"
+
+valueBox(fy19_cost, color = color)
+```
+
+Row
+-----------------------------------------------------------------------
+### FY20 Cost by System
+```{r}
+thematic_on()
+fy20_cost_filt2<- system2cost %>% 
+  filter(year=="FY2020") %>%
+  filter(cost_category == "Annual Operating Cost") %>%
+  mutate(cost = as.numeric(cost))
+p<-treemap(fy20_cost_filt2,
+        index = "system_name",
+        vSize = "cost",
+        type = "index",
+        title = " ")
+```
+
+
+
+```{r}
+#2019 WBS Links
+#===================================== 
+#system2cost_urls2<-system2cost_urls %>%
+#  select(-document_url)
+#reactable(system2cost_urls2, resizable = TRUE, 
+#          columns = list(
+#            system_name = colDef(name = "System Name", minWidth = 300),
+#            document_name = colDef(html = TRUE, cell = function(value, index){
+#              sprintf('<a href="%s" target="_blank">%s</a>', system2cost_urls$document_url[index],value)
+#            }, name = "Document Name", minWidth = 200)),
+#          theme = reactableTheme(
+#            style = list(fontFamily = "Work Sans, sans-serif")),
+#          pageSizeOptions = 25)
+```
+
+
+Cost by Year & Type
+===================================== 
+
+Click the FY20 cost number which is a hyperlink to view FY20 WBS
+```{r}
+#system2cost_wide1<- system2cost_wide %>%
+#  filter(system_name %in% c("National Current Observation Program (NCOP)", "National Water Level Observation #Network (NWLON)","Physical Oceanographic Real-Time System (PORTS)"))
+
+system2cost_wide1<- system2cost_wide %>%
+  select(system_name, cost_type, cost_category, FY2016, FY2017, FY2018, FY2019, FY2020) %>%
+  mutate(FY2016 = ifelse(is.na(FY2016), "", FY2016)) %>%
+  mutate(FY2017 = ifelse(is.na(FY2017), "", FY2017)) %>%
+  mutate(FY2018 = ifelse(is.na(FY2018), "", FY2018)) %>%
+  mutate(FY2019 = ifelse(is.na(FY2019), "", FY2019)) %>%
+  mutate(FY2020 = ifelse(is.na(FY2020), "", FY2020))
+
+reactable(system2cost_wide1, resizable = TRUE,
+          columns = list(
+            system_name = colDef(name = "System Name", minWidth = 300),
+            cost_type = colDef(name = "Cost Type"),
+            cost_category = colDef(name = "Cost Category"),
+            FY2020 = colDef(html = TRUE,  cell = function(value, index){
+            sprintf('<a href="%s" target="_blank">%s</a>', system2cost_wide$document_url[index],value)})),
+rowStyle = function(index) {
+  if(!is.na(system2cost_wide[index, "FY2020"])) list(background = "rgba(0, 0, 0, 0.05)")},
+          theme = reactableTheme(
+            style = list(fontFamily = "Work Sans, sans-serif")),
+          pageSizeOptions = 25, groupBy ="system_name")
+
+# cell = function(value, index){
+#              sprintf('<a href="%s" target="_blank">%s</a>', system2cost_wide1$document_url[index],value)})
+```
+
+
