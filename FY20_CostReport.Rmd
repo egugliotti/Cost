@@ -6,7 +6,7 @@ output:
     toc_float: true
     theme: flatly
 ---
-
+#open up command line from r project and do 'introduce yourself to git'
 ```{r, echo = FALSE, message = FALSE, warning = FALSE}
 # Web Services, get files
 #devtools::install_github(repo="haozhu233/kableExtra", ref="a6af5c0")
